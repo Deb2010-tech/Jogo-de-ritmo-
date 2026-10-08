@@ -80,6 +80,18 @@
 }    else if (gesto === "Neutro") {
     document.getElementById("mensagem").innerText = "Neutro!";
 }
+
+    let ultimoGesto = "";
+    function jogo(gesto) {
+    if (gesto !== ultimoGesto) {
+    // tudo aqui dentro acontece só quando o gesto MUDA
+    document.getElementById("mensagem").innerText = "Novo gesto: " +
+
+    gesto;
+
+    ultimoGesto = gesto;
+}
+}
 }
     }
 
