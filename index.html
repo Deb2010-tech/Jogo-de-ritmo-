@@ -12,6 +12,7 @@
 <button type="button" onclick="init()">Start</button>
 <div><canvas id="canvas"></canvas></div>
 <div id="label-container"></div>
+
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/pose@0.8/dist/teachablemachine-pose.min.js"></script>
 <script type="text/javascript">
@@ -71,14 +72,24 @@
 
         // finally draw the poses
         drawPose(pose);
+            function jogo(gesto) {
+    if (gesto === "Direita") {
+    document.getElementById("mensagem").innerText = "Direita!";
+    } else if (gesto === "Esquerda") {
+    document.getElementById("mensagem").innerText = "Esquerda!";
+}    else if (gesto === "Neutro") {
+    document.getElementById("mensagem").innerText = "Neutro!";
+}
+}
     }
 
     function drawPose(pose) {
         if (webcam.canvas) {
             ctx.drawImage(webcam.canvas, 0, 0);
             // draw the keypoints and skeleton
+            
             if (pose) {
-                const minPartConfidence = 0.5;
+                const minPartConfidence = 0.3;
                 tmPose.drawKeypoints(pose.keypoints, minPartConfidence, ctx);
                 tmPose.drawSkeleton(pose.keypoints, minPartConfidence, ctx);
             }
