@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="pt-BR" class="h-full bg-slate-950 text-slate-100">
 <head>
@@ -119,6 +120,13 @@
         <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
           <div id="predictionConfidenceBar" class="h-full bg-amber-400 w-0 transition-all duration-75"></div>
         </div>
+        <!-- Indicadores Visuais de Pista na Câmera -->
+        <div class="grid grid-cols-4 gap-1 mt-2 pt-2 border-t border-slate-800/80 text-center text-[10px] font-bold">
+          <div id="aiLaneInd_0" class="py-1 rounded bg-slate-800 text-cyan-300 transition-all">D</div>
+          <div id="aiLaneInd_1" class="py-1 rounded bg-slate-800 text-fuchsia-300 transition-all">F</div>
+          <div id="aiLaneInd_2" class="py-1 rounded bg-slate-800 text-amber-300 transition-all">J</div>
+          <div id="aiLaneInd_3" class="py-1 rounded bg-slate-800 text-emerald-300 transition-all">K</div>
+        </div>
       </div>
     </div>
 
@@ -168,7 +176,30 @@
             <button id="btnLoadTM" class="px-4 py-2 bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-bold rounded-lg text-xs">Carregar IA</button>
           </div>
           <p id="tmStatusMsg" class="text-xs text-slate-400 italic">Confirme a URL do seu modelo e clique em Carregar.</p>
-          <div id="tmClassesGuide" class="hidden text-xs bg-slate-900/90 rounded-lg p-2 text-slate-300"></div>
+
+          <!-- Sensibilidade e Modo de Disparo -->
+          <div class="grid grid-cols-2 gap-3 pt-2 border-t border-slate-800/80">
+            <div>
+              <div class="flex justify-between text-[11px] font-bold text-slate-300 mb-1">
+                <span>Sensibilidade</span>
+                <span id="thresholdVal" class="text-fuchsia-400">65%</span>
+              </div>
+              <input type="range" id="aiSensRange" min="40" max="90" value="65" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-fuchsia-500">
+            </div>
+            <div>
+              <label class="block text-[11px] font-bold text-slate-300 mb-1">Modo de Disparo</label>
+              <select id="aiTriggerModeSelect" class="w-full bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-lg px-2 py-1 outline-none">
+                <option value="edge">Mudança de Pose (Recomendado)</option>
+                <option value="continuous">Contínuo (Sustentado)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Painel Mapeamento de Pistas Customizado -->
+          <div id="tmMappingPanel" class="hidden pt-2 border-t border-slate-800/80 space-y-2">
+            <span class="block text-xs font-bold text-fuchsia-300">Mapeamento de Poses Detectadas:</span>
+            <div id="tmClassesMappingList" class="space-y-1.5 text-xs max-h-36 overflow-y-auto pr-1"></div>
+          </div>
         </div>
 
         <div>
@@ -477,79 +508,103 @@
         this.aiCooldowns = [0, 0, 0, 0];
         this.notes = [];
 
+        // Mapeamento e Parâmetros de IA
+        this.classLaneMap = {};
+        this.aiThreshold = 0.65;
+        this.lastAIClass = null;
+        this.aiTriggerMode = 'edge';
+
         this.resizeCanvas();
         window.addEventListener('resize', () => this.resizeCanvas());
         this.setupKeyListeners();
       }
-
-      resizeCanvas() {
-        this.canvas.width = this.canvas.parentElement.clientWidth;
-        this.canvas.height = this.canvas.parentElement.clientHeight;
-        this.hitLineY = this.canvas.height - 100;
-        this.laneWidth = this.canvas.width / 4;
-      }
-
-      setupKeyListeners() {
-        window.addEventListener('keydown', (e) => {
-          if (!this.isPlaying) return;
-          const idx = this.laneKeys.indexOf(e.key.toLowerCase());
-          if (idx !== -1 && !this.laneActive[idx]) { this.laneActive[idx] = true; this.triggerHit(idx); }
+      autoMapClasses(classNames) {
+        this.classLaneMap = {};
+        const nonNeutral = classNames.filter(c => {
+          const l = c.toLowerCase();
+          return !['background', 'neutro', 'nada', 'bg', 'idle', 'center', 'centro', 'repouso'].some(k => l.includes(k));
         });
-        window.addEventListener('keyup', (e) => {
-          const idx = this.laneKeys.indexOf(e.key.toLowerCase());
-          if (idx !== -1) this.laneActive[idx] = false;
-        });
-      }
 
-      spawnNote(lane) { this.notes.push({ lane, y: -40, hit: false, missed: false }); this.totalNotesSpawned++; }
-
-      triggerHit(lane) {
-        let closest = null; let minDist = Infinity;
-        for (let note of this.notes) {
-          if (note.lane === lane && !note.hit && !note.missed) {
-            const dist = Math.abs(note.y - this.hitLineY);
-            if (dist < this.hitWindow && dist < minDist) { minDist = dist; closest = note; }
+        classNames.forEach((className) => {
+          const l = className.toLowerCase();
+          
+          if (['background', 'neutro', 'nada', 'bg', 'idle', 'center', 'centro', 'repouso'].some(k => l.includes(k))) {
+            this.classLaneMap[className] = -1;
+            return;
           }
-        }
 
-        if (closest) {
-          closest.hit = true; this.audio.playHitSound(lane);
-          let addedScore = 100; let rating = 'GREAT!';
-          if (minDist < this.hitWindow * 0.35) { rating = 'PERFECT!'; addedScore = 250; }
-          
-          this.combo++; this.totalHits++;
-          if (this.combo > this.maxCombo) this.maxCombo = this.combo;
-          this.multiplier = Math.min(4, Math.floor(this.combo / 10) + 1);
-          this.score += addedScore * this.multiplier;
-          this.health = Math.min(100, this.health + 2);
-          
-          this.showHitFeedback(rating, this.laneColors[lane].hex);
-        } else {
-          this.health = Math.max(0, this.health - 2);
-        }
-        this.updateHUD();
+          if (/\b(esq|esquerda|left)\b/i.test(l) || l === 'd' || l.startsWith('esq')) {
+            this.classLaneMap[className] = 0;
+          } else if (/\b(f|cima|up|top)\b/i.test(l)) {
+            this.classLaneMap[className] = 1;
+          } else if (/\b(j|baixo|down|bottom)\b/i.test(l)) {
+            this.classLaneMap[className] = 2;
+          } else if (/\b(dir|direita|right|k)\b/i.test(l) || l.startsWith('dir')) {
+            this.classLaneMap[className] = 3;
+          } else {
+            if (nonNeutral.length === 2) {
+              const idx = nonNeutral.indexOf(className);
+              this.classLaneMap[className] = idx === 0 ? 0 : 3;
+            } else {
+              const idx = nonNeutral.indexOf(className);
+              this.classLaneMap[className] = idx >= 0 ? idx % 4 : -1;
+            }
+          }
+        });
       }
 
       handleAIPrediction(predictions, top) {
         if (!this.isPlaying || this.inputMode !== 'ai') return;
-        document.getElementById('activePredictionText').textContent = top.className;
-        document.getElementById('predictionConfidenceBar').style.width = `${Math.round(top.probability * 100)}%`;
-
-        const nameLower = top.className.toLowerCase();
-        if (['background', 'neutro', 'nada', 'bg'].some(k => nameLower.includes(k))) return;
-
-        let lane = -1;
-        if (nameLower.includes('d') || nameLower.includes('esq') || nameLower.includes('1')) lane = 0;
-        else if (nameLower.includes('f') || nameLower.includes('2')) lane = 1;
-        else if (nameLower.includes('j') || nameLower.includes('3')) lane = 2;
-        else if (nameLower.includes('k') || nameLower.includes('dir') || nameLower.includes('4')) lane = 3;
-        else lane = predictions.findIndex(p => p.className === top.className) % 4;
+        
+        const activeText = document.getElementById('activePredictionText');
+        if (activeText) activeText.textContent = top.className;
+        const bar = document.getElementById('predictionConfidenceBar');
+        if (bar) bar.style.width = `${Math.round(top.probability * 100)}%`;
 
         const now = Date.now();
-        if (top.probability > 0.8 && lane >= 0 && lane < 4 && (now - this.aiCooldowns[lane] > 220)) {
-          this.laneActive[lane] = true; this.triggerHit(lane); this.aiCooldowns[lane] = now;
-          setTimeout(() => this.laneActive[lane] = false, 120);
+        const lane = this.classLaneMap[top.className] !== undefined ? this.classLaneMap[top.className] : -1;
+
+        // Atualiza indicadores visuais da câmera
+        for (let i = 0; i < 4; i++) {
+          const ind = document.getElementById(`aiLaneInd_${i}`);
+          if (ind) {
+            if (lane === i && top.probability >= this.aiThreshold) {
+              ind.classList.add('bg-fuchsia-500', 'text-white', 'scale-110');
+              ind.classList.remove('bg-slate-800');
+            } else {
+              ind.classList.remove('bg-fuchsia-500', 'text-white', 'scale-110');
+              ind.classList.add('bg-slate-800');
+            }
+          }
         }
+
+        if (lane === -1) {
+          this.lastAIClass = top.className;
+          return;
+        }
+
+        if (top.probability >= this.aiThreshold) {
+          let shouldTrigger = false;
+
+          if (this.aiTriggerMode === 'edge') {
+            if (this.lastAIClass !== top.className || (now - this.aiCooldowns[lane] > 350)) {
+              shouldTrigger = true;
+            }
+          } else {
+            if (now - this.aiCooldowns[lane] > 200) {
+              shouldTrigger = true;
+            }
+          }
+
+          if (shouldTrigger && lane >= 0 && lane < 4) {
+            this.laneActive[lane] = true;
+            this.triggerHit(lane);
+            this.aiCooldowns[lane] = now;
+            setTimeout(() => this.laneActive[lane] = false, 120);
+          }
+        }
+
+        this.lastAIClass = top.className;
       }
 
       update() {
@@ -672,6 +727,22 @@
       const game = new RhythmGame();
       let mode = 'ai', song = 'sevenNation', diff = 'medium';
 
+      // Ajuste de Sensibilidade e Modo
+      const rangeEl = document.getElementById('aiSensRange');
+      if (rangeEl) {
+        rangeEl.oninput = (e) => {
+          game.aiThreshold = parseFloat(e.target.value) / 100;
+          document.getElementById('thresholdVal').textContent = `${e.target.value}%`;
+        };
+      }
+
+      const modeSel = document.getElementById('aiTriggerModeSelect');
+      if (modeSel) {
+        modeSel.onchange = (e) => {
+          game.aiTriggerMode = e.target.value;
+        };
+      }
+
       document.getElementById('selectKeyboardBtn').onclick = (e) => {
         mode = 'keyboard';
         e.currentTarget.classList.add('border-cyan-400', 'bg-cyan-950/40'); e.currentTarget.classList.remove('border-slate-700', 'bg-slate-800/40');
@@ -726,10 +797,42 @@
         const res = await game.tmEngine.loadModel(url);
         if (res.success) {
           await game.tmEngine.setupWebcam('webcamContainer');
-          msg.textContent = `✅ Sucesso!`; msg.className = 'text-emerald-400 text-xs';
-          const guide = document.getElementById('tmClassesGuide');
-          guide.classList.remove('hidden');
-          guide.innerHTML = `<strong>Classes:</strong> ${res.classNames.map(n => `<span class="bg-slate-800 px-1 rounded">${n}</span>`).join(' ')}`;
+          msg.textContent = `✅ Modelo Carregado Com Sucesso!`; msg.className = 'text-emerald-400 text-xs font-bold';
+          
+          // Mapeia classes automaticamente
+          game.autoMapClasses(res.classNames);
+
+          // Exibe painel para personalização manual das faixas
+          const mappingPanel = document.getElementById('tmMappingPanel');
+          const mappingList = document.getElementById('tmClassesMappingList');
+          if (mappingPanel && mappingList) {
+            mappingPanel.classList.remove('hidden');
+            mappingList.innerHTML = '';
+
+            res.classNames.forEach(className => {
+              const currentLane = game.classLaneMap[className] !== undefined ? game.classLaneMap[className] : -1;
+              const row = document.createElement('div');
+              row.className = 'flex items-center justify-between gap-2 bg-slate-900 p-1.5 rounded border border-slate-800';
+              
+              row.innerHTML = `
+                <span class="font-bold text-slate-200 truncate max-w-[120px]">${className}</span>
+                <select class="bg-slate-950 text-cyan-300 border border-slate-700 rounded px-2 py-0.5 text-[11px] outline-none">
+                  <option value="-1" ${currentLane === -1 ? 'selected' : ''}>-- Ignorar / Repouso --</option>
+                  <option value="0" ${currentLane === 0 ? 'selected' : ''}>Pista 1 [ D / Esquerda ]</option>
+                  <option value="1" ${currentLane === 1 ? 'selected' : ''}>Pista 2 [ F / Cima ]</option>
+                  <option value="2" ${currentLane === 2 ? 'selected' : ''}>Pista 3 [ J / Baixo ]</option>
+                  <option value="3" ${currentLane === 3 ? 'selected' : ''}>Pista 4 [ K / Direita ]</option>
+                </select>
+              `;
+
+              const select = row.querySelector('select');
+              select.onchange = (e) => {
+                game.classLaneMap[className] = parseInt(e.target.value, 10);
+              };
+
+              mappingList.appendChild(row);
+            });
+          }
         } else {
           msg.textContent = `❌ Erro: ${res.error}`; msg.className = 'text-red-400 text-xs';
         }
